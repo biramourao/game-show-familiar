@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Game Show Familiar - Painel do Apresentador</title>
+  <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+  <div id="app">
+    <header class="header">
+      <h1 class="title">🎛️ PAINEL DO APRESENTADOR</h1>
+      <div id="connection-status" class="status-indicator status-disconnected">⚪ Desconectado</div>
+    </header>
+
+    <main id="control-panel" class="control-panel hidden">
+      <section class="controls-section">
+        <button id="btn-start-round" class="btn btn-primary">🔄 Nova Rodada</button>
+        <button id="btn-end-round" class="btn btn-danger">⏹️ Encerrar</button>
+      </section>
+
+      <section id="game-info" class="game-info">
+        <div id="round-info" class="round-info"></div>
+        <div id="secret-word-display" class="secret-word-display"></div>
+      </section>
+
+      <section id="clue-controls" class="clue-controls">
+        <h3 class="section-title">🔓 LIBERAR PISTAS:</h3>
+        <button id="btn-clue-1" class="btn btn-small">Pista 1</button>
+        <button id="btn-clue-2" class="btn btn-small">Pista 2</button>
+        <button id="btn-clue-3" class="btn btn-small">Pista 3</button>
+      </section>
+
+      <section id="answer-controls" class="answer-controls">
+        <h3 class="section-title">✅ ACERTOU?</h3>
+        <div class="answer-buttons">
+          <button id="btn-score-a" class="btn btn-success">Equipe A +10pts</button>
+          <button id="btn-score-b" class="btn btn-success">Equipe B +10pts</button>
+        </div>
+        <button id="btn-skip" class="btn btn-warning">❌ Ninguém acertou</button>
+      </section>
+
+      <section id="turn-controls" class="turn-controls">
+        <h3 class="section-title">🔄 TURNO:</h3>
+        <div id="current-turn-display" class="turn-display"></div>
+        <button id="btn-next-turn" class="btn btn-secondary">Mudar Turno</button>
+      </section>
+
+      <section id="grid-preview" class="grid-preview">
+        <h3 class="section-title">GRID:</h3>
+        <div id="mini-grid" class="mini-grid"></div>
+      </section>
+    </main>
+
+    <section id="waiting-screen" class="waiting-screen">
+      <p>Aguardando conexão...</p>
+    </section>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/js/controle.js"></script>
+</body>
+</html>
