@@ -305,11 +305,27 @@ body {
 
 .clue-controls,
 .answer-controls,
+.reveal-controls,
 .turn-controls,
 .grid-preview {
   padding: 20px;
   background: #16213e;
   border-radius: 12px;
+}
+
+.secret-word-control {
+  text-align: center;
+  font-size: 1.8rem;
+  color: #ffd700;
+  word-break: break-all;
+  margin-bottom: 15px;
+  padding: 10px;
+  background: #0f3460;
+  border-radius: 8px;
+}
+
+.reveal-controls .btn {
+  width: 100%;
 }
 
 .answer-buttons {

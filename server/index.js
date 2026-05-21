@@ -165,6 +165,30 @@ io.on('connection', (socket) => {
     io.to(currentRoom).emit('sync_state', state);
   });
 
+  socket.on('reveal_word', () => {
+    const gameRoom = getOrCreateRoom(currentRoom);
+    
+    if (gameRoom.status !== 'playing') {
+      socket.emit('error', { message: 'Jogo não está em andamento' });
+      return;
+    }
+
+    const result = gameRoom.revealWord();
+    
+    if (!result.success) {
+      socket.emit('error', { message: result.error });
+      return;
+    }
+
+    io.to(currentRoom).emit('word_revealed', {
+      word: gameRoom.words[gameRoom.currentWordIndex].palavra_secreta,
+      revealed_by: 'presenter'
+    });
+
+    const state = gameRoom.getState();
+    io.to(currentRoom).emit('sync_state', state);
+  });
+
   socket.on('skip_word', () => {
     const gameRoom = getOrCreateRoom(currentRoom);
     

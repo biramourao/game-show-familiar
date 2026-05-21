@@ -132,13 +132,18 @@ function renderGrid() {
   
   for (let i = 1; i <= 10; i++) {
     const cell = document.createElement('div');
-    cell.className = 'grid-cell grid-cell-active';
+    cell.className = 'grid-cell';
     cell.id = `cell-${i}`;
     cell.textContent = i;
     
     if (gameState.usedNumbers.includes(i)) {
-      cell.classList.remove('grid-cell-active');
       cell.classList.add('grid-cell-used');
+    } else {
+      cell.classList.add('grid-cell-active');
+      cell.style.cursor = 'pointer';
+      cell.addEventListener('click', () => {
+        socket.emit('select_number', { number: i });
+      });
     }
     
     grid.appendChild(cell);
@@ -205,6 +210,10 @@ function updateUI() {
       cell.classList.add('grid-cell-used');
     } else {
       cell.classList.add('grid-cell-active');
+      cell.style.cursor = 'pointer';
+      cell.addEventListener('click', () => {
+        socket.emit('select_number', { number: i });
+      });
     }
     
     grid.appendChild(cell);

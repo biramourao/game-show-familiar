@@ -62,6 +62,11 @@ socket.on('word_revealed', (data) => {
   } else {
     secretWordDisplay.textContent = `Palavra revelada: ${data.word}`;
   }
+  
+  const controlDisplay = document.getElementById('secret-word-control-display');
+  if (controlDisplay) {
+    controlDisplay.textContent = data.word;
+  }
 });
 
 socket.on('turn_changed', (data) => {
@@ -104,6 +109,10 @@ document.getElementById('btn-end-round').addEventListener('click', () => {
   socket.emit('end_round');
 });
 
+document.getElementById('btn-reveal-word').addEventListener('click', () => {
+  socket.emit('reveal_word');
+});
+
 document.getElementById('btn-clue-1').addEventListener('click', () => {
   socket.emit('reveal_clue');
 });
@@ -141,17 +150,22 @@ function updateUI() {
   }
   
   const secretWordDisplay = document.getElementById('secret-word-display');
+  const controlWordDisplay = document.getElementById('secret-word-control-display');
+  
   if (gameState.status === 'playing' && gameState.theme) {
     const word = gameState.words ? gameState.words[gameState.currentWordIndex] : null;
     if (word && !word.revealed) {
       secretWordDisplay.textContent = `Palavra secreta: ${word.palavra_secreta} 👁️`;
+      controlWordDisplay.textContent = word.palavra_secreta;
     } else {
       secretWordDisplay.textContent = 'Aguardando seleção...';
+      controlWordDisplay.textContent = '';
     }
   } else if (gameState.status === 'ended') {
     // Keep winner display from round_ended event
   } else {
     secretWordDisplay.textContent = 'Inicie uma nova rodada para começar!';
+    controlWordDisplay.textContent = '';
   }
   
   const turnDisplay = document.getElementById('current-turn-display');

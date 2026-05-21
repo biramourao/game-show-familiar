@@ -132,6 +132,16 @@ class GameRoom {
     return { success: true };
   }
 
+  revealWord() {
+    if (this.status !== 'playing') {
+      return { success: false, error: 'Jogo não está em andamento' };
+    }
+
+    this.words[this.currentWordIndex].revealed = true;
+    
+    return { success: true };
+  }
+
   nextTurn() {
     if (this.status !== 'playing') {
       return { success: false, error: 'Jogo não está em andamento' };
@@ -210,7 +220,12 @@ class GameRoom {
       usedNumbers: [...this.usedNumbers],
       scores: { ...this.scores },
       currentTurn: this.currentTurn,
-      startTime: this.startTime
+      startTime: this.startTime,
+      words: this.words.map(w => ({
+        palavra_secreta: w.palavra_secreta,
+        revealed: w.revealed,
+        used: w.used
+      }))
     };
   }
 }
