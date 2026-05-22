@@ -141,9 +141,6 @@ function renderGrid() {
     } else {
       cell.classList.add('grid-cell-active');
       cell.style.cursor = 'pointer';
-      cell.addEventListener('click', () => {
-        socket.emit('select_number', { number: i });
-      });
     }
     
     grid.appendChild(cell);
@@ -211,13 +208,18 @@ function updateUI() {
     } else {
       cell.classList.add('grid-cell-active');
       cell.style.cursor = 'pointer';
-      cell.addEventListener('click', () => {
-        socket.emit('select_number', { number: i });
-      });
     }
     
     grid.appendChild(cell);
   }
 }
+
+document.getElementById('number-grid').addEventListener('click', (e) => {
+  const cell = e.target.closest('.grid-cell-active');
+  if (!cell) return;
+  
+  const number = parseInt(cell.id.replace('cell-', ''));
+  socket.emit('select_number', { number });
+});
 
 document.addEventListener('DOMContentLoaded', init);
