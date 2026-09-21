@@ -68,14 +68,10 @@ io.on('connection', (socket) => {
 
   socket.on('start_round', (data) => {
     const gameRoom = getOrCreateRoom(currentRoom);
-    
-    if (gameRoom.status !== 'idle' && gameRoom.status !== 'playing') {
-      socket.emit('error', { message: 'Não é possível iniciar uma nova rodada agora' });
-      return;
-    }
 
+    // Aceita reiniciar de qualquer estado (idle, playing, ended)
     const result = gameRoom.startRound(data.tema_id, data.word_count || 10);
-    
+
     if (!result.success) {
       socket.emit('error', { message: result.error });
       return;

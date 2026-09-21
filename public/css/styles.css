@@ -57,13 +57,14 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 14px 20px;
+  padding: 10px 0;
   flex-wrap: wrap;
+  flex-shrink: 0;
 }
 
 .title {
   font-family: var(--font-display);
-  font-size: clamp(1.1rem, 3.5vw, 2rem);
+  font-size: clamp(0.95rem, 2.2vh, 1.7rem);
   letter-spacing: 0.04em;
   text-transform: uppercase;
   background: linear-gradient(90deg, var(--neon-cyan), var(--gold), var(--neon-magenta));
@@ -145,13 +146,17 @@ body {
 }
 
 /* ============================================================
-   TV — Tela principal
+   TV — Tela principal (otimizada para 16:9 1080p, sem scroll)
    ============================================================ */
 
 .tv-app {
-  max-width: 1400px;
+  max-width: 100%;
   margin: 0 auto;
-  padding: 0 20px 40px;
+  padding: 0 24px 16px;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 /* ---------- Placar ---------- */
@@ -161,33 +166,39 @@ body {
   grid-template-columns: 1fr auto 1fr;
   align-items: center;
   gap: 16px;
-  margin: 12px 0 28px;
+  margin: 8px 0 16px;
+  flex-shrink: 0;
 }
 
 .team {
   background: var(--bg-panel);
   border: 2px solid var(--bg-panel-light);
   border-radius: var(--radius);
-  padding: 16px 20px;
+  padding: 8px 16px;
   text-align: center;
-  transition: border-color 0.3s, box-shadow 0.3s, transform 0.3s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  transition: border-color 0.3s, box-shadow 0.3s;
 }
 
 .team-name {
   font-family: var(--font-condensed);
-  font-size: clamp(1rem, 2.2vw, 1.6rem);
+  font-size: clamp(1rem, 1.8vh, 1.5rem);
   font-weight: 600;
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--text-dim);
+  margin: 0;
 }
 
 .score {
   font-family: var(--font-display);
-  font-size: clamp(2.4rem, 7vw, 5rem);
+  font-size: clamp(2rem, 5.5vh, 3.8rem);
   color: var(--gold);
   text-shadow: 0 0 24px rgba(255, 215, 0, 0.4);
-  line-height: 1.1;
+  line-height: 1;
   transition: transform 0.2s;
 }
 
@@ -216,11 +227,11 @@ body {
 
 .turn-indicator {
   font-family: var(--font-condensed);
-  font-size: clamp(0.95rem, 2vw, 1.4rem);
+  font-size: clamp(0.9rem, 1.8vh, 1.3rem);
   font-weight: 600;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  padding: 12px 22px;
+  padding: 8px 18px;
   border-radius: 999px;
   background: var(--bg-panel);
   border: 1px solid var(--bg-panel-light);
@@ -234,39 +245,44 @@ body {
 .game-area {
   display: flex;
   flex-direction: column;
-  gap: 28px;
+  gap: clamp(10px, 2vh, 24px);
+  flex: 1;
+  min-height: 0;
+  justify-content: center;
 }
 
 .theme-display {
   font-family: var(--font-condensed);
-  font-size: clamp(1.2rem, 3vw, 2rem);
+  font-size: clamp(1rem, 2.2vh, 1.6rem);
   font-weight: 600;
   letter-spacing: 0.15em;
   text-transform: uppercase;
   text-align: center;
   color: var(--neon-cyan);
   text-shadow: 0 0 20px rgba(0, 229, 255, 0.5);
+  flex-shrink: 0;
 }
 
 /* ---------- Grid de números (painel de luzes) ---------- */
 
 .number-grid {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  gap: clamp(8px, 1.5vw, 20px);
-  max-width: 900px;
+  grid-template-columns: repeat(10, 1fr);
+  gap: clamp(6px, 1vh, 14px);
+  max-width: 1400px;
   margin: 0 auto;
   width: 100%;
+  flex-shrink: 0;
 }
 
 .grid-cell {
-  aspect-ratio: 1;
+  aspect-ratio: 1.3;
   display: flex;
   align-items: center;
   justify-content: center;
   font-family: var(--font-display);
-  font-size: clamp(1.6rem, 5vw, 3.6rem);
-  border-radius: var(--radius);
+  font-size: clamp(1.3rem, 3.5vh, 2.6rem);
+  border-radius: 10px;
   background: linear-gradient(160deg, var(--bg-panel-light), var(--bg-panel));
   border: 3px solid var(--bg-panel-light);
   color: var(--text);
@@ -312,33 +328,35 @@ body {
 .points-stake {
   text-align: center;
   font-family: var(--font-condensed);
-  font-size: clamp(1.2rem, 3vw, 2rem);
+  font-size: clamp(1rem, 2.2vh, 1.6rem);
   font-weight: 600;
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--gold);
   text-shadow: 0 0 16px rgba(255, 215, 0, 0.45);
+  flex-shrink: 0;
 }
 
 .points-stake .stake-number {
   font-family: var(--font-display);
-  font-size: 1.4em;
+  font-size: 1.35em;
 }
 
 /* ---------- Pistas ---------- */
 
 .clues-section {
-  max-width: 900px;
+  max-width: 1100px;
   width: 100%;
   margin: 0 auto;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: clamp(8px, 1.4vh, 14px);
+  flex-shrink: 0;
 }
 
 .section-title {
   font-family: var(--font-condensed);
-  font-size: clamp(1rem, 2.4vw, 1.5rem);
+  font-size: clamp(0.9rem, 1.8vh, 1.3rem);
   font-weight: 600;
   letter-spacing: 0.18em;
   text-transform: uppercase;
@@ -353,8 +371,8 @@ body {
   background: var(--bg-panel);
   border: 2px solid var(--bg-panel-light);
   border-left: 6px solid var(--neon-magenta);
-  border-radius: var(--radius);
-  padding: clamp(12px, 2vw, 22px) clamp(16px, 2.5vw, 28px);
+  border-radius: 10px;
+  padding: clamp(8px, 1.5vh, 16px) clamp(14px, 2vw, 24px);
   animation: clue-in 0.45s cubic-bezier(0.2, 0.9, 0.3, 1.2);
 }
 
@@ -365,7 +383,7 @@ body {
 
 .clue-label {
   font-family: var(--font-condensed);
-  font-size: clamp(0.9rem, 2vw, 1.2rem);
+  font-size: clamp(0.8rem, 1.6vh, 1.1rem);
   font-weight: 700;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -374,9 +392,9 @@ body {
 }
 
 .clue-text {
-  font-size: clamp(1.15rem, 3vw, 2.1rem);
+  font-size: clamp(1rem, 2.4vh, 1.7rem);
   font-weight: 500;
-  line-height: 1.3;
+  line-height: 1.25;
 }
 
 .clue.locked {
@@ -389,32 +407,33 @@ body {
 .clue.locked .clue-text {
   font-style: italic;
   color: var(--text-dim);
-  font-size: clamp(0.95rem, 2vw, 1.3rem);
+  font-size: clamp(0.85rem, 1.7vh, 1.15rem);
 }
 
 /* ---------- Palavra secreta (letreiro) ---------- */
 
 .word-section {
   text-align: center;
+  flex-shrink: 0;
 }
 
 .secret-word {
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
-  gap: clamp(6px, 1vw, 12px);
-  margin-top: 16px;
-  min-height: 60px;
+  gap: clamp(5px, 0.8vw, 10px);
+  margin-top: 8px;
+  min-height: 50px;
 }
 
 .letter-tile {
-  width: clamp(34px, 5.5vw, 64px);
-  height: clamp(46px, 7vw, 84px);
+  width: clamp(30px, 3.2vw, 56px);
+  height: clamp(42px, 6.5vh, 72px);
   display: flex;
   align-items: center;
   justify-content: center;
   font-family: var(--font-display);
-  font-size: clamp(1.4rem, 4vw, 3rem);
+  font-size: clamp(1.2rem, 3vh, 2.4rem);
   border-radius: 8px;
   background: linear-gradient(180deg, var(--bg-panel-light), var(--bg-panel));
   border: 2px solid var(--bg-panel-light);
@@ -439,32 +458,37 @@ body {
 
 .end-screen {
   text-align: center;
-  padding: 40px 20px;
+  padding: 20px;
   animation: clue-in 0.6s ease;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
 }
 
 .end-screen h2 {
   font-family: var(--font-display);
-  font-size: clamp(2rem, 7vw, 4.5rem);
+  font-size: clamp(1.8rem, 6vh, 4rem);
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--gold);
   text-shadow: 0 0 32px rgba(255, 215, 0, 0.5);
-  margin-bottom: 32px;
+  margin-bottom: 24px;
 }
 
 .final-scores {
   display: flex;
   justify-content: center;
-  gap: clamp(20px, 5vw, 60px);
+  gap: clamp(24px, 4vw, 60px);
 }
 
 .final-score-row {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
   font-family: var(--font-condensed);
-  font-size: clamp(1.1rem, 2.5vw, 1.6rem);
+  font-size: clamp(1rem, 2.2vh, 1.5rem);
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--text-dim);
@@ -472,7 +496,7 @@ body {
 
 .final-score-row strong {
   font-family: var(--font-display);
-  font-size: clamp(2.2rem, 6vw, 4rem);
+  font-size: clamp(2rem, 5.5vh, 3.6rem);
   color: var(--text);
 }
 
@@ -806,11 +830,15 @@ body {
    Responsivo
    ============================================================ */
 
-/* Telas grandes (TV) */
-@media (min-width: 1200px) {
-  .header { padding: 24px 32px; }
-  .game-area { gap: 40px; }
-  .scoreboard { margin-bottom: 40px; }
+/* Grid da TV volta a 5 colunas em telas estreitas */
+@media (max-width: 900px) {
+  .number-grid {
+    grid-template-columns: repeat(5, 1fr);
+  }
+
+  .grid-cell {
+    aspect-ratio: 1;
+  }
 }
 
 /* Mobile: scoreboard mais compacto */
@@ -826,7 +854,7 @@ body {
     padding: 8px 16px;
   }
 
-  .team { padding: 12px; }
+  .team { padding: 10px; }
 }
 
 /* Acessibilidade: reduz animações */
