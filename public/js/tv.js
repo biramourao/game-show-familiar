@@ -1,5 +1,7 @@
 const socket = io();
 
+const MAX_NUMBERS = 10;
+
 let gameState = {
   status: 'idle',
   theme: null,
@@ -8,103 +10,81 @@ let gameState = {
   revealedClues: 0,
   usedNumbers: [],
   scores: { A: 0, B: 0 },
-  currentTurn: 'A'
+  currentTurn: 'A',
+  currentWord: null,
+  words: []
 };
 
 function init() {
   socket.emit('join_game', { room: 'familia' });
 }
 
-socket.on('game_joined', (data) => {
-  console.log('Conectado à sala:', data.room);
+socket.on('game_joined', () => {
+  // Estado sincronizado via sync_state se o jogo já estiver rolando
 });
 
-socket.on('client_joined', (data) => {
-  console.log('Cliente conectado:', data.socketId, data.clientType);
-});
-
-socket.on('client_disconnected', (data) => {
-  console.log('Cliente desconectado:', data.socketId);
-});
-
-socket.on('game_started', (data) => {
-  gameState.status = 'playing';
-  gameState.theme = data.theme;
-  gameState.wordsCount = data.words_count;
-  
-  document.getElementById('waiting-screen').classList.add('hidden');
-  document.getElementById('game-area').classList.remove('hidden');
-  document.getElementById('scoreboard').classList.remove('hidden');
-  
-  renderGrid();
-  updateThemeDisplay();
+socket.on('game_started', () => {
+  hide('end-screen');
+  renderAll();
 });
 
 socket.on('sync_state', (state) => {
+  if (!state) return;
   gameState = state;
-  updateUI();
-});
-
-socket.on('number_selected', (data) => {
-  const word = data.word;
-  
-  document.getElementById('clues-section').classList.remove('hidden');
-  document.getElementById('word-section').classList.remove('hidden');
-  
-  renderClues(word);
-  renderSecretWord(word.palavra_secreta);
+  renderAll();
 });
 
 socket.on('clue_revealed', (data) => {
+  // Estado já aplicado pelo sync_state anterior; aqui só garante a animação
   const clueEl = document.getElementById(`clue-${data.level}`);
   if (clueEl) {
-    clueEl.classList.remove('hidden');
+    clueEl.classList.remove('locked');
     clueEl.querySelector('.clue-text').textContent = data.text;
   }
 });
 
+socket.on('number_selected', () => {
+  // Estado já aplicado pelo sync_state anterior
+});
+
 socket.on('score_updated', (data) => {
-  gameState.scores[data.team] = data.total;
-  
-  document.getElementById(`score-${data.team.toLowerCase()}`).textContent = data.total;
+  popScore(data.team);
+  if (data.word) {
+    renderSecretWordTiles(data.word, false);
+    animateWordReveal(data.word);
+  }
 });
 
 socket.on('word_revealed', (data) => {
-  renderSecretWord(data.word);
+  renderSecretWordTiles(data.word, false);
+  animateWordReveal(data.word);
 });
 
 socket.on('turn_changed', (data) => {
   gameState.currentTurn = data.activeTeam;
-  
-  const turnDisplay = document.getElementById('turn-display');
-  if (data.activeTeam === 'A') {
-    turnDisplay.textContent = '🟢 Vez da Equipe A';
-  } else {
-    turnDisplay.textContent = '🔵 Vez da Equipe B';
-  }
+  updateScoreboard();
 });
 
 socket.on('round_ended', (data) => {
   gameState.status = 'ended';
-  
-  document.getElementById('game-area').classList.add('hidden');
-  document.getElementById('end-screen').classList.remove('hidden');
-  
+  hide('game-area');
+  show('end-screen');
+
   const winnerDisplay = document.getElementById('winner-display');
   if (data.winner) {
-    winnerDisplay.textContent = `🏆 Vencedor: Equipe ${data.winner}`;
+    winnerDisplay.textContent = `🏆 Equipe ${data.winner} venceu!`;
   } else {
     winnerDisplay.textContent = '🤝 Empate!';
   }
-  
+
   const finalScores = document.getElementById('final-scores');
   finalScores.innerHTML = `
     <div class="final-score-row">
-      <span>Equipe A:</span>
+      <span>Equipe A</span>
       <strong>${data.finalScores.A}</strong>
     </div>
     <div class="final-score-row">
-      <span>Equipe B:</span>
+      <span>Equipe B</span>
       <strong>${data.finalScores.B}</strong>
     </div>
   `;
@@ -117,109 +97,195 @@ socket.on('error', (data) => {
 socket.on('connect', () => {
   const statusEl = document.getElementById('connection-status');
   statusEl.className = 'status-indicator status-connected';
-  statusEl.textContent = '🟢 Conectado';
+  statusEl.textContent = 'Conectado';
 });
 
 socket.on('disconnect', () => {
   const statusEl = document.getElementById('connection-status');
   statusEl.className = 'status-indicator status-disconnected';
-  statusEl.textContent = '🔴 Desconectado';
+  statusEl.textContent = 'Desconectado';
 });
 
-function renderGrid() {
-  const grid = document.getElementById('number-grid');
-  grid.innerHTML = '';
-  
-  for (let i = 1; i <= 10; i++) {
-    const cell = document.createElement('div');
-    cell.className = 'grid-cell';
-    cell.id = `cell-${i}`;
-    cell.textContent = i;
-    
-    if (gameState.usedNumbers.includes(i)) {
-      cell.classList.add('grid-cell-used');
-    } else {
-      cell.classList.add('grid-cell-active');
-      cell.style.cursor = 'pointer';
-    }
-    
-    grid.appendChild(cell);
-  }
+/* ---------- Renderização ---------- */
+
+function show(id) {
+  document.getElementById(id).classList.remove('hidden');
+}
+
+function hide(id) {
+  document.getElementById(id).classList.add('hidden');
+}
+
+// Palavra aberta = número escolhido, ainda não pontuada/pulada
+function isWordOpen() {
+  const w = gameState.words && gameState.words[gameState.currentWordIndex];
+  return !!gameState.currentWord && !!w && w.used && !w.revealed;
+}
+
+// Palavra concluída = usada e revelada (acertada, pulada ou mostrada)
+function isWordDone() {
+  const w = gameState.words && gameState.words[gameState.currentWordIndex];
+  return !!gameState.currentWord && !!w && w.used && w.revealed;
+}
+
+function lastUsedNumber() {
+  if (!gameState.usedNumbers || gameState.usedNumbers.length === 0) return null;
+  return gameState.usedNumbers[gameState.usedNumbers.length - 1];
+}
+
+function renderAll() {
+  if (gameState.status !== 'playing') return;
+
+  show('scoreboard');
+  show('game-area');
+  hide('waiting-screen');
+  hide('end-screen');
+
+  updateThemeDisplay();
+  renderGrid();
+  updateScoreboard();
+  renderClues();
+  renderWord();
+  updatePointsStake();
 }
 
 function updateThemeDisplay() {
   const themeDisplay = document.getElementById('theme-display');
-  if (gameState.theme) {
-    themeDisplay.textContent = `Tema: ${gameState.theme.nome}`;
-  }
+  themeDisplay.textContent = gameState.theme ? `Tema: ${gameState.theme.nome}` : '';
 }
 
-function renderClues(word) {
-  gameState.revealedClues = 0;
-  
-  const clue1 = document.getElementById('clue-1');
-  const clue2 = document.getElementById('clue-2');
-  const clue3 = document.getElementById('clue-3');
-  
-  clue1.querySelector('.clue-text').textContent = 'Aguardando...';
-  clue2.querySelector('.clue-text').textContent = 'Bloqueada';
-  clue3.querySelector('.clue-text').textContent = 'Bloqueada';
-  
-  clue2.classList.add('hidden');
-  clue3.classList.add('hidden');
-}
-
-function renderSecretWord(word) {
-  const wordSection = document.getElementById('secret-word');
-  const blanks = word.length;
-  let display = '';
-  
-  for (let i = 0; i < blanks; i++) {
-    display += '_ ';
-  }
-  
-  wordSection.textContent = display;
-}
-
-function updateUI() {
-  if (!gameState.theme) return;
-  
-  document.getElementById('score-a').textContent = gameState.scores.A;
-  document.getElementById('score-b').textContent = gameState.scores.B;
-  
-  const turnDisplay = document.getElementById('turn-display');
-  if (gameState.currentTurn === 'A') {
-    turnDisplay.textContent = '🟢 Vez da Equipe A';
-  } else {
-    turnDisplay.textContent = '🔵 Vez da Equipe B';
-  }
-  
+function renderGrid() {
   const grid = document.getElementById('number-grid');
   grid.innerHTML = '';
-  
-  for (let i = 1; i <= 10; i++) {
+
+  const current = lastUsedNumber();
+  const hasOpenWord = isWordOpen();
+
+  for (let i = 1; i <= MAX_NUMBERS; i++) {
     const cell = document.createElement('div');
     cell.className = 'grid-cell';
     cell.id = `cell-${i}`;
     cell.textContent = i;
-    
-    if (gameState.usedNumbers.includes(i)) {
+
+    if (hasOpenWord && i === current) {
+      cell.classList.add('grid-cell-selected');
+    } else if (gameState.usedNumbers && gameState.usedNumbers.includes(i)) {
       cell.classList.add('grid-cell-used');
     } else {
       cell.classList.add('grid-cell-active');
-      cell.style.cursor = 'pointer';
     }
-    
+
     grid.appendChild(cell);
   }
 }
 
-document.getElementById('number-grid').addEventListener('click', (e) => {
-  const cell = e.target.closest('.grid-cell-active');
-  if (!cell) return;
-  
-  const number = parseInt(cell.id.replace('cell-', ''));
-  socket.emit('select_number', { number });
-});
+function updateScoreboard() {
+  document.getElementById('score-a').textContent = gameState.scores.A;
+  document.getElementById('score-b').textContent = gameState.scores.B;
+
+  const turnDisplay = document.getElementById('turn-display');
+  turnDisplay.textContent = `Vez da Equipe ${gameState.currentTurn}`;
+
+  document.getElementById('team-a-card').classList.toggle('team-active', gameState.currentTurn === 'A');
+  document.getElementById('team-b-card').classList.toggle('team-active', gameState.currentTurn === 'B');
+}
+
+function popScore(team) {
+  const scoreEl = document.getElementById(`score-${team.toLowerCase()}`);
+  scoreEl.classList.remove('score-pop');
+  void scoreEl.offsetWidth;
+  scoreEl.classList.add('score-pop');
+}
+
+function updatePointsStake() {
+  const stake = document.getElementById('points-stake');
+  const revealed = gameState.revealedClues || 0;
+
+  if (!isWordOpen() || revealed === 0) {
+    stake.classList.add('hidden');
+    return;
+  }
+
+  stake.classList.remove('hidden');
+  document.getElementById('stake-value').textContent = 11 - revealed;
+}
+
+function renderClues() {
+  const word = gameState.currentWord;
+
+  if (!word) {
+    hide('clues-section');
+    return;
+  }
+
+  show('clues-section');
+  const revealedCount = gameState.revealedClues || 0;
+
+  for (let i = 1; i <= 3; i++) {
+    const clue = document.getElementById(`clue-${i}`);
+    if (i <= revealedCount) {
+      clue.classList.remove('locked');
+      clue.querySelector('.clue-text').textContent = word[`pista_${i}`];
+    } else {
+      clue.classList.add('locked');
+      clue.querySelector('.clue-text').textContent = 'Bloqueada';
+    }
+  }
+}
+
+function renderWord() {
+  const word = gameState.currentWord;
+
+  if (!word) {
+    hide('word-section');
+    return;
+  }
+
+  show('word-section');
+  renderSecretWordTiles(word.palavra_secreta, isWordDone());
+}
+
+/* ---------- Letreiro de letras ---------- */
+
+function renderSecretWordTiles(word, revealed) {
+  const container = document.getElementById('secret-word');
+  container.innerHTML = '';
+
+  for (const char of word) {
+    if (char === ' ') {
+      const spacer = document.createElement('div');
+      spacer.style.width = 'clamp(16px, 2.5vw, 32px)';
+      container.appendChild(spacer);
+      continue;
+    }
+
+    const tile = document.createElement('div');
+    tile.className = 'letter-tile';
+    if (revealed) {
+      tile.textContent = char;
+      tile.classList.add('revealed');
+    } else {
+      tile.textContent = '?';
+    }
+    container.appendChild(tile);
+  }
+}
+
+function animateWordReveal(word) {
+  const tiles = document.querySelectorAll('#secret-word .letter-tile');
+  let tileIndex = 0;
+
+  for (const char of word) {
+    if (char === ' ') continue;
+    const tile = tiles[tileIndex];
+    if (tile) {
+      setTimeout(() => {
+        tile.textContent = char;
+        tile.classList.add('revealed');
+      }, tileIndex * 90);
+    }
+    tileIndex++;
+  }
+}
 
 document.addEventListener('DOMContentLoaded', init);

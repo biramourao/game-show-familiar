@@ -61,16 +61,23 @@ class GameRoom {
       return { success: false, error: 'Jogo não está em andamento' };
     }
 
-    if (this.usedNumbers.includes(number)) {
+    if (number < 1 || number > this.words.length) {
+      return { success: false, error: 'Número inválido' };
+    }
+
+    const word = this.words[number - 1];
+
+    if (word.used) {
       return { success: false, error: 'Número já foi usado' };
     }
 
-    const word = this.words[this.currentWordIndex];
-    
     this.usedNumbers.push(number);
     word.used = true;
+    // O número escolhido define a palavra atual
+    this.currentWordIndex = number - 1;
+    this.revealedClues = 0;
 
-    return { success: true, number, wordIndex: this.currentWordIndex, word: this.words[this.currentWordIndex] };
+    return { success: true, number, wordIndex: this.currentWordIndex, word };
   }
 
   revealClue() {
@@ -112,14 +119,20 @@ class GameRoom {
     }
 
     const points = correct ? (11 - this.revealedClues) : 0;
-    
+
     if (correct) {
       this.scores[team] += points;
     }
 
     this.words[this.currentWordIndex].revealed = true;
 
-    return { success: true, team, points, correct };
+    return {
+      success: true,
+      team,
+      points,
+      correct,
+      word: this.words[this.currentWordIndex].palavra_secreta
+    };
   }
 
   skipWord() {
@@ -157,14 +170,26 @@ class GameRoom {
       return { success: false, error: 'Jogo não está em andamento' };
     }
 
-    this.currentWordIndex++;
-    this.revealedClues = 0;
-
     const allWordsUsed = this.words.every(w => w.used);
-    
+
     if (allWordsUsed) {
-      return { success: true, allWordsUsed: true, winner: this.scores.A > this.scores.B ? 'A' : this.scores.B > this.scores.A ? 'B' : null };
+      this.status = 'ended';
+      this.endTime = new Date();
+      return {
+        success: true,
+        allWordsUsed: true,
+        winner: this.scores.A > this.scores.B ? 'A' : this.scores.B > this.scores.A ? 'B' : null
+      };
     }
+
+    // Procura a próxima palavra ainda não usada (suporta seleção fora de ordem)
+    let nextIndex = (this.currentWordIndex + 1) % this.words.length;
+    while (this.words[nextIndex].used && nextIndex !== this.currentWordIndex) {
+      nextIndex = (nextIndex + 1) % this.words.length;
+    }
+
+    this.currentWordIndex = nextIndex;
+    this.revealedClues = 0;
 
     return { success: true, currentWordIndex: this.currentWordIndex, word: this.words[this.currentWordIndex] };
   }
@@ -209,7 +234,7 @@ class GameRoom {
       status: this.status,
       theme: this.theme,
       wordsCount: this.words.length,
-      currentWordIndex: this.currentWordIndex + 1,
+      currentWordIndex: this.currentWordIndex,
       currentWord: currentWord ? {
         palavra_secreta: currentWord.palavra_secreta,
         pista_1: currentWord.pista_1,

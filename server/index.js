@@ -81,14 +81,14 @@ io.on('connection', (socket) => {
       return;
     }
 
+    const startState = gameRoom.getState();
+    io.to(currentRoom).emit('sync_state', startState);
+
     io.to(currentRoom).emit('game_started', {
       theme: gameRoom.theme,
       words_count: gameRoom.words.length,
       teams: gameRoom.scores
     });
-
-    const state = gameRoom.getState();
-    io.to(currentRoom).emit('sync_state', state);
   });
 
   socket.on('select_number', (data) => {
@@ -106,14 +106,14 @@ io.on('connection', (socket) => {
       return;
     }
 
+    const selectState = gameRoom.getState();
+    io.to(currentRoom).emit('sync_state', selectState);
+
     io.to(currentRoom).emit('number_selected', {
       number: result.number,
       wordIndex: result.wordIndex + 1,
       word: result.word
     });
-
-    const state = gameRoom.getState();
-    io.to(currentRoom).emit('sync_state', state);
   });
 
   socket.on('reveal_clue', () => {
@@ -131,13 +131,13 @@ io.on('connection', (socket) => {
       return;
     }
 
+    const clueState = gameRoom.getState();
+    io.to(currentRoom).emit('sync_state', clueState);
+
     io.to(currentRoom).emit('clue_revealed', {
       level: result.level,
       text: result.text
     });
-
-    const state = gameRoom.getState();
-    io.to(currentRoom).emit('sync_state', state);
   });
 
   socket.on('submit_answer', (data) => {
@@ -155,14 +155,15 @@ io.on('connection', (socket) => {
       return;
     }
 
+    const scoreState = gameRoom.getState();
+    io.to(currentRoom).emit('sync_state', scoreState);
+
     io.to(currentRoom).emit('score_updated', {
       team: result.team,
       points: result.points,
-      total: gameRoom.scores[result.team]
+      total: gameRoom.scores[result.team],
+      word: result.word
     });
-
-    const state = gameRoom.getState();
-    io.to(currentRoom).emit('sync_state', state);
   });
 
   socket.on('reveal_word', () => {
@@ -180,13 +181,13 @@ io.on('connection', (socket) => {
       return;
     }
 
+    const revealState = gameRoom.getState();
+    io.to(currentRoom).emit('sync_state', revealState);
+
     io.to(currentRoom).emit('word_revealed', {
       word: gameRoom.words[gameRoom.currentWordIndex].palavra_secreta,
       revealed_by: 'presenter'
     });
-
-    const state = gameRoom.getState();
-    io.to(currentRoom).emit('sync_state', state);
   });
 
   socket.on('skip_word', () => {
@@ -204,13 +205,13 @@ io.on('connection', (socket) => {
       return;
     }
 
+    const skipState = gameRoom.getState();
+    io.to(currentRoom).emit('sync_state', skipState);
+
     io.to(currentRoom).emit('word_revealed', {
       word: gameRoom.words[gameRoom.currentWordIndex].palavra_secreta,
       revealed_by: 'skip'
     });
-
-    const state = gameRoom.getState();
-    io.to(currentRoom).emit('sync_state', state);
   });
 
   socket.on('next_turn', () => {
@@ -251,17 +252,15 @@ io.on('connection', (socket) => {
         winner: result.winner,
         finalScores: gameRoom.scores
       });
-      
-      gameRoom.status = 'ended';
     } else {
+      const nextState = gameRoom.getState();
+      io.to(currentRoom).emit('sync_state', nextState);
+
       io.to(currentRoom).emit('number_selected', {
         number: null,
         wordIndex: result.currentWordIndex + 1,
         word: result.word
       });
-
-      const state = gameRoom.getState();
-      io.to(currentRoom).emit('sync_state', state);
     }
   });
 
@@ -286,8 +285,10 @@ io.on('connection', (socket) => {
   });
 
   socket.on('disconnect', () => {
+    if (!currentRoom) return;
+
     const gameRoom = getOrCreateRoom(currentRoom);
-    
+
     if (gameRoom.connectedClients) {
       gameRoom.connectedClients.delete(socket.id);
     }
