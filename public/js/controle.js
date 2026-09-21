@@ -71,7 +71,11 @@ socket.on('sync_state', (state) => {
 socket.on('number_selected', (data) => {
   wordRevealedOnTv = false;
   if (data.number) {
-    showToast(`Número ${data.number} selecionado`, 'info');
+    if (data.previousNumber) {
+      showToast(`Trocado: ${data.previousNumber} → ${data.number}`, 'info');
+    } else {
+      showToast(`Número ${data.number} selecionado`, 'info');
+    }
   }
   updateUI();
 });
@@ -297,8 +301,9 @@ function renderMiniGrid() {
   // Palavra em aberto = número escolhido e ainda não concluído
   const currentWordState = gameState.words ? gameState.words[gameState.currentWordIndex] : null;
   const wordOpen = playing && !!currentWordState && currentWordState.used && !currentWordState.revealed;
-  // Pode escolher número: jogo rolando e sem palavra em aberto
-  const canPick = playing && !wordOpen;
+  const revealed = gameState.revealedClues || 0;
+  // Pode escolher número: sem palavra em aberto, OU com palavra aberta mas nenhuma pista liberada (troca)
+  const canPick = playing && (!wordOpen || (wordOpen && revealed === 0));
   const current = lastUsedNumber();
 
   for (let i = 1; i <= MAX_NUMBERS; i++) {

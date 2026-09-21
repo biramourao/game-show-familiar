@@ -43,8 +43,11 @@ socket.on('clue_revealed', (data) => {
   }
 });
 
-socket.on('number_selected', () => {
-  // Estado já aplicado pelo sync_state anterior
+socket.on('number_selected', (data) => {
+  // Se trocou de número, garante que as pistas voltam a aparecer bloqueadas
+  if (data.previousNumber) {
+    resetClues();
+  }
 });
 
 socket.on('score_updated', (data) => {
@@ -246,6 +249,14 @@ function renderWord() {
 }
 
 /* ---------- Letreiro de letras ---------- */
+
+function resetClues() {
+  for (let i = 1; i <= 3; i++) {
+    const clue = document.getElementById(`clue-${i}`);
+    clue.classList.add('locked');
+    clue.querySelector('.clue-text').textContent = 'Bloqueada';
+  }
+}
 
 function renderSecretWordTiles(word, revealed) {
   const container = document.getElementById('secret-word');

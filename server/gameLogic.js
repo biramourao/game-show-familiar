@@ -11,6 +11,7 @@ class GameRoom {
     this.usedNumbers = [];
     this.scores = { A: 0, B: 0 };
     this.currentTurn = 'A';
+    this.changedNumber = null;
     this.startTime = null;
     this.endTime = null;
     this.connectedClients = new Set();
@@ -51,6 +52,7 @@ class GameRoom {
     this.usedNumbers = [];
     this.scores = { A: 0, B: 0 };
     this.currentTurn = 'A';
+    this.changedNumber = null;
     this.startTime = new Date();
 
     return { success: true, theme: this.theme, wordCount: this.words.length };
@@ -65,6 +67,22 @@ class GameRoom {
       return { success: false, error: 'Número inválido' };
     }
 
+    const currentWord = this.words[this.currentWordIndex];
+    const hasOpenWord = currentWord && currentWord.used && !currentWord.revealed;
+
+    // Troca de número: permitida apenas se nenhuma pista foi liberada ainda
+    if (hasOpenWord) {
+      if (this.revealedClues > 0) {
+        return { success: false, error: 'Não é possível trocar: pistas já foram liberadas' };
+      }
+      // Desfaz a seleção anterior
+      const previousNumber = this.usedNumbers.pop();
+      currentWord.used = false;
+      this.changedNumber = previousNumber;
+    } else {
+      this.changedNumber = null;
+    }
+
     const word = this.words[number - 1];
 
     if (word.used) {
@@ -77,7 +95,7 @@ class GameRoom {
     this.currentWordIndex = number - 1;
     this.revealedClues = 0;
 
-    return { success: true, number, wordIndex: this.currentWordIndex, word };
+    return { success: true, number, previousNumber: this.changedNumber, wordIndex: this.currentWordIndex, word };
   }
 
   revealClue() {

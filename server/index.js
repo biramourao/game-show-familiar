@@ -107,6 +107,7 @@ io.on('connection', (socket) => {
 
     io.to(currentRoom).emit('number_selected', {
       number: result.number,
+      previousNumber: result.previousNumber || null,
       wordIndex: result.wordIndex + 1,
       word: result.word
     });
