@@ -50,13 +50,16 @@ io.on('connection', (socket) => {
 
     socket.emit('game_joined', { room, clientType });
 
+    // Configurações da sala (independente de rodada em andamento)
+    socket.emit('settings_updated', { showWordLength: gameRoom.showWordLength });
+
     if (gameRoom.status === 'playing') {
       socket.emit('game_started', {
         theme: gameRoom.theme,
         words_count: gameRoom.words.length,
         teams: gameRoom.scores
       });
-      
+
       const state = gameRoom.getState();
       if (state) {
         socket.emit('sync_state', state);
@@ -70,7 +73,13 @@ io.on('connection', (socket) => {
     const gameRoom = getOrCreateRoom(currentRoom);
 
     // Aceita reiniciar de qualquer estado (idle, playing, ended)
-    const result = gameRoom.startRound(data.tema_id, data.word_count || 10);
+    // Suporta palavras geradas por IA via data.words + data.theme_name
+    const result = gameRoom.startRound(
+      data.tema_id,
+      data.word_count || 10,
+      Array.isArray(data.words) ? data.words : null,
+      data.theme_name || null
+    );
 
     if (!result.success) {
       socket.emit('error', { message: result.error });
@@ -279,6 +288,17 @@ io.on('connection', (socket) => {
     });
 
     gameRoom.status = 'idle';
+  });
+
+  socket.on('set_show_word_length', (data) => {
+    const gameRoom = getOrCreateRoom(currentRoom);
+    const result = gameRoom.setShowWordLength(data && data.show);
+    io.to(currentRoom).emit('settings_updated', { showWordLength: result.showWordLength });
+
+    const state = gameRoom.getState();
+    if (state) {
+      io.to(currentRoom).emit('sync_state', state);
+    }
   });
 
   socket.on('disconnect', () => {

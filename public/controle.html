@@ -27,6 +27,59 @@
           <button id="btn-start-round" class="btn btn-primary">▶️ Nova Rodada</button>
           <button id="btn-end-round" class="btn btn-danger" disabled>⏹️ Encerrar</button>
         </div>
+        <div class="display-toggle-row">
+          <label class="toggle-switch" for="toggle-word-length">
+            <input type="checkbox" id="toggle-word-length" checked>
+            <span class="toggle-slider"></span>
+            <span class="toggle-label">Mostrar tamanho da palavra na TV</span>
+          </label>
+        </div>
+      </section>
+
+      <section id="ai-section" class="ai-section">
+        <button id="btn-ai-toggle" class="ai-section-toggle" aria-expanded="false">
+          🤖 Gerar tema com IA <span class="ai-chevron">▾</span>
+        </button>
+        <div id="ai-body" class="ai-body hidden">
+          <div class="ai-field-row">
+            <div class="ai-field">
+              <label for="ai-base-url">Endereço do serviço</label>
+              <input type="text" id="ai-base-url" placeholder="http://localhost:1234/v1" autocomplete="off">
+            </div>
+            <div class="ai-field">
+              <label for="ai-model">Modelo</label>
+              <input type="text" id="ai-model" placeholder="ex.: llama-3.1-8b" autocomplete="off">
+            </div>
+          </div>
+          <div class="ai-field-row">
+            <div class="ai-field ai-field-grow">
+              <label for="ai-api-key">API key (se precisar)</label>
+              <input type="text" id="ai-api-key" placeholder="lm-studio" autocomplete="off">
+            </div>
+            <button id="btn-ai-test" class="btn btn-secondary btn-small">🔌 Testar conexão</button>
+          </div>
+          <div id="ai-status" class="ai-status"></div>
+          <div id="ai-progress" class="ai-progress hidden">
+            <span class="ai-spinner"></span>
+            <span id="ai-progress-text">Gerando...</span>
+            <button id="btn-ai-cancel" class="btn btn-danger btn-small">✖ Cancelar</button>
+          </div>
+          <div class="ai-field-row">
+            <div class="ai-field ai-field-grow">
+              <label for="ai-theme-input">Tema livre</label>
+              <input type="text" id="ai-theme-input" placeholder="ex.: Filmes dos anos 90" maxlength="80">
+            </div>
+            <div class="ai-field ai-field-small">
+              <label for="ai-count">Palavras</label>
+              <input type="number" id="ai-count" min="5" max="20" value="12">
+            </div>
+          </div>
+          <label class="ai-save-row" for="ai-save">
+            <input type="checkbox" id="ai-save" checked>
+            <span>Salvar no banco para usar de novo depois</span>
+          </label>
+          <button id="btn-ai-generate" class="btn btn-primary">✨ Gerar palavras com IA</button>
+        </div>
       </section>
 
       <section id="game-info" class="game-info">

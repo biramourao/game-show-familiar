@@ -61,4 +61,31 @@ function getWordById(wordId) {
   return stmt.get(wordId);
 }
 
-module.exports = { getDatabase, getAllTemas, getWordsByTheme, getWordById };
+function getOrCreateTema(nome) {
+  getDatabase();
+  const cleanName = String(nome || '').trim();
+  if (!cleanName) throw new Error('Nome do tema é obrigatório');
+
+  const existing = db.prepare('SELECT id, nome FROM temas WHERE nome = ?').get(cleanName);
+  if (existing) return { tema: existing, created: false };
+
+  const info = db.prepare('INSERT INTO temas (nome, descricao) VALUES (?, ?)')
+    .run(cleanName, 'Gerado por IA');
+  return { tema: { id: info.lastInsertRowid, nome: cleanName }, created: true };
+}
+
+function insertPalavras(temaId, words) {
+  getDatabase();
+  const stmt = db.prepare(
+    'INSERT INTO palavras (tema_id, palavra_secreta, pista_1, pista_2, pista_3, dificuldade) VALUES (?, ?, ?, ?, ?, ?)'
+  );
+  const insertMany = db.transaction((items) => {
+    for (const w of items) {
+      stmt.run(temaId, w.palavra_secreta, w.pista_1, w.pista_2, w.pista_3, w.dificuldade || 'médio');
+    }
+  });
+  insertMany(words);
+  return words.length;
+}
+
+module.exports = { getDatabase, getAllTemas, getWordsByTheme, getWordById, getOrCreateTema, insertPalavras };

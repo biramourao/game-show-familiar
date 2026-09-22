@@ -16,21 +16,37 @@ class GameRoom {
     this.endTime = null;
     this.connectedClients = new Set();
     this.disconnectTimer = null;
+    // true = mostra os quadradinhos com o tamanho da palavra antes de revelar
+    this.showWordLength = true;
   }
 
-  startRound(themeId, wordCount) {
-    const themeData = require('./database').getDatabase().prepare(
-      'SELECT id, nome FROM temas WHERE id = ?'
-    ).get(themeId);
+  setShowWordLength(value) {
+    this.showWordLength = !!value;
+    return { success: true, showWordLength: this.showWordLength };
+  }
 
-    if (!themeData) {
-      return { success: false, error: 'Tema não encontrado' };
-    }
+  startRound(themeId, wordCount, customWords = null, customThemeName = null) {
+    let themeData;
+    let availableWords;
 
-    const availableWords = getWordsByTheme(themeId, wordCount + 5);
-    
-    if (availableWords.length < wordCount) {
-      return { success: false, error: 'Tema sem palavras suficientes' };
+    if (Array.isArray(customWords) && customWords.length > 0) {
+      // Rodada com palavras geradas por IA sem salvar no banco
+      themeData = { id: null, nome: String(customThemeName || 'Tema personalizado').trim() };
+      availableWords = customWords.map((w, i) => ({ id: `ia-${i}`, ...w }));
+    } else {
+      themeData = require('./database').getDatabase().prepare(
+        'SELECT id, nome FROM temas WHERE id = ?'
+      ).get(themeId);
+
+      if (!themeData) {
+        return { success: false, error: 'Tema não encontrado' };
+      }
+
+      availableWords = getWordsByTheme(themeId, wordCount + 5);
+
+      if (availableWords.length < wordCount) {
+        return { success: false, error: 'Tema sem palavras suficientes' };
+      }
     }
 
     const shuffled = this.shuffleArray(availableWords).slice(0, wordCount);
@@ -263,6 +279,7 @@ class GameRoom {
       usedNumbers: [...this.usedNumbers],
       scores: { ...this.scores },
       currentTurn: this.currentTurn,
+      showWordLength: this.showWordLength,
       startTime: this.startTime,
       words: this.words.map(w => ({
         palavra_secreta: w.palavra_secreta,

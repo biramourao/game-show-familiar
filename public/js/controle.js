@@ -15,10 +15,13 @@ let gameState = {
 };
 
 let wordRevealedOnTv = false;
+// Palavras geradas por IA aguardando "Nova Rodada" (quando não salvas no banco)
+let pendingAiRound = null;
 
 function init() {
   socket.emit('join_game', { room: 'familia' });
   loadThemes();
+  loadAiDefaults();
 }
 
 /* ---------- Temas ---------- */
@@ -41,6 +44,177 @@ async function loadThemes() {
   }
 }
 
+/* ---------- IA: gerar tema com serviço padrão OpenAI ---------- */
+
+const AI_STORAGE_KEY = 'gsf-ai-config';
+
+function aiConfigFromForm() {
+  return {
+    baseUrl: document.getElementById('ai-base-url').value.trim(),
+    model: document.getElementById('ai-model').value.trim(),
+    apiKey: document.getElementById('ai-api-key').value.trim()
+  };
+}
+
+function saveAiConfig() {
+  try {
+    localStorage.setItem(AI_STORAGE_KEY, JSON.stringify(aiConfigFromForm()));
+  } catch (e) { /* storage indisponível: ignora */ }
+}
+
+async function loadAiDefaults() {
+  // 1) padrões do servidor (.env), 2) última config salva no navegador
+  try {
+    const res = await fetch('/api/ia/config');
+    const json = await res.json();
+    if (json.success) {
+      document.getElementById('ai-base-url').value = json.data.baseUrl;
+      document.getElementById('ai-model').value = json.data.model;
+    }
+  } catch (e) { /* mantém placeholders */ }
+
+  try {
+    const saved = JSON.parse(localStorage.getItem(AI_STORAGE_KEY) || 'null');
+    if (saved) {
+      if (saved.baseUrl) document.getElementById('ai-base-url').value = saved.baseUrl;
+      if (saved.model) document.getElementById('ai-model').value = saved.model;
+      if (saved.apiKey) document.getElementById('ai-api-key').value = saved.apiKey;
+    }
+  } catch (e) { /* ignora */ }
+}
+
+function setAiStatus(message, type) {
+  const el = document.getElementById('ai-status');
+  el.textContent = message || '';
+  el.className = 'ai-status' + (type ? ` ai-status-${type}` : '');
+}
+
+/* ----- Barra de progresso da geração (modelos locais podem demorar) ----- */
+
+let aiAbortController = null;
+let aiProgressTimer = null;
+
+function formatElapsed(seconds) {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return m > 0 ? `${m}min ${String(s).padStart(2, '0')}s` : `${s}s`;
+}
+
+function startAiProgress(message) {
+  const bar = document.getElementById('ai-progress');
+  const text = document.getElementById('ai-progress-text');
+  bar.classList.remove('hidden');
+  const t0 = Date.now();
+  text.textContent = `${message} (${formatElapsed(0)})`;
+  aiProgressTimer = setInterval(() => {
+    const elapsed = Math.floor((Date.now() - t0) / 1000);
+    text.textContent = `${message} (${formatElapsed(elapsed)})`;
+  }, 1000);
+}
+
+function stopAiProgress() {
+  clearInterval(aiProgressTimer);
+  aiProgressTimer = null;
+  document.getElementById('ai-progress').classList.add('hidden');
+}
+
+document.getElementById('btn-ai-cancel').addEventListener('click', () => {
+  if (aiAbortController) aiAbortController.abort();
+});
+
+document.getElementById('btn-ai-toggle').addEventListener('click', () => {
+  const body = document.getElementById('ai-body');
+  const btn = document.getElementById('btn-ai-toggle');
+  const willOpen = body.classList.contains('hidden');
+  body.classList.toggle('hidden');
+  btn.setAttribute('aria-expanded', String(willOpen));
+  btn.querySelector('.ai-chevron').textContent = willOpen ? '▴' : '▾';
+});
+
+document.getElementById('btn-ai-test').addEventListener('click', async () => {
+  const btn = document.getElementById('btn-ai-test');
+  btn.disabled = true;
+  setAiStatus('Testando conexão...', 'info');
+  try {
+    const res = await fetch('/api/ia/testar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(aiConfigFromForm())
+    });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.error);
+
+    const { models, modelAvailable } = json.data;
+    saveAiConfig();
+    if (models.length > 0 && !modelAvailable) {
+      setAiStatus(`Conectado! ⚠️ Modelo não listado. Disponíveis: ${models.slice(0, 3).join(', ')}`, 'info');
+    } else {
+      setAiStatus(`Conectado! ${models.length ? models.length + ' modelo(s) disponíveis' : 'Serviço respondeu OK'}`, 'success');
+    }
+  } catch (err) {
+    setAiStatus(err.message, 'error');
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+document.getElementById('btn-ai-generate').addEventListener('click', async () => {
+  const tema = document.getElementById('ai-theme-input').value.trim();
+  const quantidade = parseInt(document.getElementById('ai-count').value, 10) || 12;
+  const salvar = document.getElementById('ai-save').checked;
+
+  if (!tema) {
+    setAiStatus('Escreva um tema primeiro', 'error');
+    return;
+  }
+
+  const btn = document.getElementById('btn-ai-generate');
+  btn.disabled = true;
+  btn.textContent = '⏳ Gerando...';
+  setAiStatus('', null);
+  aiAbortController = new AbortController();
+  startAiProgress('Gerando palavras e pistas com a IA...');
+
+  try {
+    const res = await fetch('/api/ia/gerar-tema', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tema, quantidade, salvar, ...aiConfigFromForm() }),
+      signal: aiAbortController.signal
+    });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.error);
+
+    saveAiConfig();
+    setAiStatus(`✅ ${json.data.count} palavras prontas para "${json.data.tema_nome}"${json.data.salvo ? ' (salvas no banco)' : ''}`, 'success');
+    updateRoundInfo();
+
+    if (json.data.salvo && json.data.tema_id) {
+      // Aparece no seletor e já fica selecionado para a próxima rodada
+      await loadThemes();
+      document.getElementById('theme-select').value = json.data.tema_id;
+    } else {
+      // Sem salvar: guarda em memória e inicia a rodada com essas palavras
+      pendingAiRound = {
+        theme_name: json.data.tema_nome,
+        words: json.data.palavras
+      };
+      showToast('Palavras em memória — clique em "Nova Rodada" para jogar', 'info');
+    }
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      setAiStatus('Geração cancelada', 'error');
+    } else {
+      setAiStatus(err.message, 'error');
+    }
+  } finally {
+    stopAiProgress();
+    aiAbortController = null;
+    btn.disabled = false;
+    btn.textContent = '✨ Gerar palavras com IA';
+  }
+});
+
 /* ---------- Eventos do servidor ---------- */
 
 socket.on('game_joined', () => {
@@ -58,8 +232,13 @@ socket.on('game_started', (data) => {
   gameState.currentTurn = 'A';
   gameState.revealedClues = 0;
   wordRevealedOnTv = false;
+  pendingAiRound = null;
   showToast(`Rodada iniciada — tema: ${data.theme.nome}`, 'success');
   updateUI();
+});
+
+socket.on('settings_updated', (data) => {
+  document.getElementById('toggle-word-length').checked = !!data.showWordLength;
 });
 
 socket.on('sync_state', (state) => {
@@ -129,12 +308,34 @@ socket.on('disconnect', () => {
 /* ---------- Ações do apresentador ---------- */
 
 document.getElementById('btn-start-round').addEventListener('click', () => {
+  // Prioridade: palavras geradas por IA ainda não usadas
+  if (pendingAiRound && pendingAiRound.words && pendingAiRound.words.length > 0) {
+    socket.emit('start_round', {
+      theme_name: pendingAiRound.theme_name,
+      words: pendingAiRound.words,
+      word_count: Math.min(pendingAiRound.words.length, 10)
+    });
+    return;
+  }
+
   const temaId = parseInt(document.getElementById('theme-select').value);
   if (!temaId) {
     showToast('Selecione um tema primeiro', 'error');
     return;
   }
   socket.emit('start_round', { tema_id: temaId, word_count: 10 });
+});
+
+// Cancela o pendente de IA se o usuário trocar o tema manualmente
+document.getElementById('theme-select').addEventListener('change', () => {
+  if (pendingAiRound) {
+    pendingAiRound = null;
+    updateRoundInfo();
+  }
+});
+
+document.getElementById('toggle-word-length').addEventListener('change', (e) => {
+  socket.emit('set_show_word_length', { show: e.target.checked });
 });
 
 document.getElementById('btn-end-round').addEventListener('click', () => {
@@ -205,6 +406,8 @@ function updateRoundInfo() {
     roundInfo.textContent = `Tema: ${gameState.theme.nome} · ${used}/${gameState.wordsCount} números usados`;
   } else if (gameState.status === 'ended') {
     roundInfo.textContent = 'Rodada encerrada';
+  } else if (pendingAiRound) {
+    roundInfo.textContent = `🤖 Pronto: "${pendingAiRound.theme_name}" (${pendingAiRound.words.length} palavras por IA) — clique em Nova Rodada`;
   } else {
     roundInfo.textContent = 'Aguardando início da rodada...';
   }

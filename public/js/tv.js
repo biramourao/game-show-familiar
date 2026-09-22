@@ -12,7 +12,8 @@ let gameState = {
   scores: { A: 0, B: 0 },
   currentTurn: 'A',
   currentWord: null,
-  words: []
+  words: [],
+  showWordLength: true
 };
 
 function init() {
@@ -32,6 +33,14 @@ socket.on('sync_state', (state) => {
   if (!state) return;
   gameState = state;
   renderAll();
+});
+
+socket.on('settings_updated', (data) => {
+  gameState.showWordLength = !!data.showWordLength;
+  // Se houver palavra em aberto na tela, redesenha o letreiro já
+  if (gameState.status === 'playing') {
+    renderWord();
+  }
 });
 
 socket.on('clue_revealed', (data) => {
@@ -244,6 +253,12 @@ function renderWord() {
     return;
   }
 
+  // Se os quadradinhos estiverem ocultos, só mostra a palavra quando revelada
+  if (gameState.showWordLength === false && !isWordDone()) {
+    hide('word-section');
+    return;
+  }
+
   show('word-section');
   renderSecretWordTiles(word.palavra_secreta, isWordDone());
 }
@@ -261,6 +276,8 @@ function resetClues() {
 function renderSecretWordTiles(word, revealed) {
   const container = document.getElementById('secret-word');
   container.innerHTML = '';
+  // Sem quadradinhos: revelada aparece como texto corrido dourado
+  container.classList.toggle('no-tiles', revealed && gameState.showWordLength === false);
 
   for (const char of word) {
     if (char === ' ') {
