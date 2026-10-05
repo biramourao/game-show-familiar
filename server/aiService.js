@@ -10,6 +10,11 @@ const DEFAULT_API_KEY = process.env.OPENAI_API_KEY || 'lm-studio';
 // consulta /models, que responde na hora.
 const TEST_TIMEOUT_MS = 10000;
 
+// Limite de saída folgado: em modelos que "pensam" (Qwen3, DeepSeek-R1,
+// gpt-oss etc.) o raciocínio consome o mesmo orçamento da resposta, e só o
+// JSON de ~23 palavras com 3 pistas já passa de 2.500 tokens.
+const MAX_OUTPUT_TOKENS = 16384;
+
 function normalizeConfig(config = {}) {
   let baseUrl = (config.baseUrl || DEFAULT_BASE_URL).trim().replace(/\/+$/, '');
   // Aceita "http://host:port" sem o /v1
@@ -49,8 +54,34 @@ async function postChat(cfg, payload) {
   return { res, body };
 }
 
-async function chatCompletion(cfg, messages, { temperature = 0.7, maxTokens = 4000 } = {}) {
-  const payload = { model: cfg.model, messages, temperature, max_tokens: maxTokens };
+// Separa o raciocínio ("thinking") da resposta final. Cada servidor entrega
+// de um jeito: campo reasoning_content (DeepSeek, llama.cpp), campo reasoning
+// (LM Studio e Ollama mais novos) ou blocos <think> dentro do próprio content
+// — às vezes sem o </think>, quando o limite de tokens corta o raciocínio.
+function splitReasoning(message) {
+  let answer = typeof message.content === 'string' ? message.content : '';
+  const parts = [];
+  for (const key of ['reasoning_content', 'reasoning']) {
+    if (typeof message[key] === 'string' && message[key].trim()) parts.push(message[key]);
+  }
+
+  // Template que já abre o <think> no prompt: só o </think> aparece na saída
+  const closeIdx = answer.indexOf('</think>');
+  if (closeIdx !== -1 && answer.lastIndexOf('<think>', closeIdx) === -1) {
+    parts.push(answer.slice(0, closeIdx));
+    answer = answer.slice(closeIdx + '</think>'.length);
+  }
+  answer = answer
+    .replace(/<think>([\s\S]*?)<\/think>/gi, (_, inner) => { parts.push(inner); return ''; })
+    // <think> sem fechamento: tudo dali em diante é raciocínio cortado
+    .replace(/<think>([\s\S]*)$/i, (_, inner) => { parts.push(inner); return ''; })
+    .trim();
+
+  return { answer, reasoning: parts.join('\n').trim() };
+}
+
+async function chatCompletion(cfg, messages, { temperature = 0.7, maxTokens = MAX_OUTPUT_TOKENS, extra = {} } = {}) {
+  const payload = { model: cfg.model, messages, temperature, max_tokens: maxTokens, ...extra };
 
   let result;
   try {
@@ -60,6 +91,12 @@ async function chatCompletion(cfg, messages, { temperature = 0.7, maxTokens = 40
     // Servidores antigos rejeitam response_format com 400 — tenta sem ele
     if (!result.res.ok && result.res.status === 400) {
       result = await postChat(cfg, payload);
+    }
+    // Modelo com saída máxima menor que MAX_OUTPUT_TOKENS também responde 400:
+    // tenta sem max_tokens e deixa o servidor usar o limite padrão dele
+    if (!result.res.ok && result.res.status === 400) {
+      const { max_tokens: _omit, ...semLimite } = payload;
+      result = await postChat(cfg, semLimite);
     }
   } catch (err) {
     throw new Error(`Não foi possível conectar ao serviço de IA (${cfg.baseUrl}). Verifique a URL e se o servidor está no ar.`);
@@ -73,19 +110,14 @@ async function chatCompletion(cfg, messages, { temperature = 0.7, maxTokens = 40
     throw new Error(msg);
   }
 
-  const choice = body.choices && body.choices[0];
-  const message = choice && choice.message ? choice.message : {};
-  // Modelos de raciocínio (Qwen3, DeepSeek-R1 etc.) podem mandar a resposta
-  // em reasoning_content quando content vem vazio
-  const content = (typeof message.content === 'string' && message.content.trim())
-    ? message.content
-    : (typeof message.reasoning_content === 'string' ? message.reasoning_content : null);
-  if (!content) {
+  const choice = (body.choices && body.choices[0]) || {};
+  const { answer, reasoning } = splitReasoning(choice.message || {});
+  if (!answer && !reasoning) {
     throw new Error('Resposta vazia do serviço de IA');
   }
   // finish_reason=length indica resposta cortada por max_tokens — o JSON
   // provavelmente veio incompleto; o parser tentará recuperar os itens inteiros.
-  return { content, truncated: choice.finish_reason === 'length' };
+  return { answer, reasoning, truncated: choice.finish_reason === 'length' };
 }
 
 async function testConnection(config) {
@@ -293,25 +325,65 @@ async function generateThemeWords(theme, count, config) {
     '{"palavra": "CAPIVARA", "pista_1": "É um roedor", "pista_2": "É o maior roedor do mundo", "pista_3": "Vive à beira de rios e virou meme no Brasil"}\n' +
     `Responda agora APENAS com o array JSON completo com ${askCount} objetos:`;
 
-  const { content, truncated } = await chatCompletion(cfg, [
+  const minWords = Math.min(5, requested);
+  const first = await chatCompletion(cfg, [
     { role: 'system', content: systemPrompt },
     { role: 'user', content: userPrompt }
-  ], { temperature: 0.7, maxTokens: 4000 });
+  ], { temperature: 0.7 });
+  let { answer, truncated } = first;
 
-  const items = parseJsonArray(content);
+  if (!answer) {
+    // Veio só o raciocínio, sem resposta final. Alguns modelos escrevem o
+    // JSON pronto dentro do próprio raciocínio — aproveita se der.
+    const fromReasoning = tryExtractWords(first.reasoning, requested);
+    if (fromReasoning.length >= minWords) return fromReasoning;
+
+    // Segunda tentativa com o raciocínio desligado: "/no_think" vale para
+    // Qwen3 e enable_thinking para servidores llama.cpp/vLLM. Servidor que
+    // não aceita o parâmetro responde erro — aí fica valendo a mensagem abaixo.
+    let retry = null;
+    try {
+      retry = await chatCompletion(cfg, [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: `${userPrompt} /no_think` }
+      ], { temperature: 0.7, extra: { chat_template_kwargs: { enable_thinking: false } } });
+    } catch (err) { /* usa o erro de "só raciocínio" abaixo */ }
+
+    if (!retry || !retry.answer) {
+      const motivo = first.truncated
+        ? `o modelo gastou todo o limite de ${MAX_OUTPUT_TOKENS} tokens só raciocinando e não chegou a responder`
+        : 'o modelo devolveu só o raciocínio, sem a resposta final';
+      throw new Error(
+        `Não foi possível montar a lista: ${motivo}. ` +
+        'Tente de novo, use um modelo sem raciocínio ou desligue o "thinking" no servidor de IA.'
+      );
+    }
+    ({ answer, truncated } = retry);
+  }
+
+  const items = parseJsonArray(answer);
   const words = sanitizeWords(items, requested);
 
-  if (words.length < Math.min(5, requested)) {
+  if (words.length < minWords) {
     const motivo = truncated
       ? 'a resposta foi cortada pelo limite de tokens do modelo'
       : `a IA gerou poucas palavras válidas (${words.length})`;
     throw new Error(
       `Não foi possível montar a lista: ${motivo}. ` +
-      `Início da resposta recebida: "${preview(content)}"`
+      `Início da resposta recebida: "${preview(answer)}"`
     );
   }
 
   return words;
+}
+
+function tryExtractWords(text, expectedCount) {
+  if (!text) return [];
+  try {
+    return sanitizeWords(parseJsonArray(text), expectedCount);
+  } catch (err) {
+    return [];
+  }
 }
 
 module.exports = { testConnection, generateThemeWords, normalizeConfig };
