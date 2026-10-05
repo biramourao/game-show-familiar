@@ -56,7 +56,12 @@ router.post('/ia/gerar-tema', async (req, res) => {
     const { tema, quantidade, baseUrl, model, apiKey, salvar } = req.body || {};
     const count = parseInt(quantidade, 10) || 12;
 
-    const words = await generateThemeWords(tema, count, { baseUrl, model, apiKey });
+    // Se a tela de controle cancelar (fecha a conexão), para a geração na IA
+    // também — senão o modelo local segue ocupado por minutos à toa
+    const abort = new AbortController();
+    res.on('close', () => { if (!res.writableEnded) abort.abort(); });
+
+    const words = await generateThemeWords(tema, count, { baseUrl, model, apiKey }, { signal: abort.signal });
 
     let temaData = null;
     if (salvar !== false) {

@@ -15,6 +15,11 @@ const TEST_TIMEOUT_MS = 10000;
 // JSON de ~23 palavras com 3 pistas já passa de 2.500 tokens.
 const MAX_OUTPUT_TOKENS = 16384;
 
+// Trava contra modelo preso raciocinando: se passar disso (~4.000 tokens)
+// sem começar a resposta, corta a geração. O GLM já entrou em loop e ficou
+// 25 minutos só pensando.
+const MAX_REASONING_CHARS = 16000;
+
 function normalizeConfig(config = {}) {
   let baseUrl = (config.baseUrl || DEFAULT_BASE_URL).trim().replace(/\/+$/, '');
   // Aceita "http://host:port" sem o /v1
@@ -42,16 +47,63 @@ function authHeaders(apiKey) {
   return headers;
 }
 
-async function postChat(cfg, payload) {
-  // Sem timeout: geração em modelo local pode levar o tempo que precisar.
-  // O usuário pode cancelar pela interface (a requisição é abortada no cliente).
+async function postChat(cfg, payload, signal) {
+  // Sempre em streaming: sem ele o servidor só manda os cabeçalhos no fim da
+  // geração, e o fetch do Node desiste após 300 s esperando cabeçalho
+  // (UND_ERR_HEADERS_TIMEOUT). Em modelo local lento isso derrubava a
+  // conexão e o LM Studio parava a geração no meio.
+  // Sem timeout próprio: o usuário cancela pela interface (signal).
   const res = await fetch(`${cfg.baseUrl}/chat/completions`, {
     method: 'POST',
     headers: authHeaders(cfg.apiKey),
-    body: JSON.stringify(payload)
+    body: JSON.stringify({ ...payload, stream: true }),
+    signal
   });
-  const body = await res.json().catch(() => ({}));
-  return { res, body };
+  if (!res.ok || !/text\/event-stream/i.test(res.headers.get('content-type') || '')) {
+    // Erro, ou servidor que ignorou o stream e respondeu JSON de uma vez
+    const body = await res.json().catch(() => ({}));
+    return { res, body };
+  }
+  return { res, body: await readStream(res) };
+}
+
+// Junta os pedaços do stream (SSE) numa resposta no mesmo formato da
+// resposta sem stream: { choices: [{ message, finish_reason }] }
+async function readStream(res) {
+  const message = { content: '', reasoning_content: '' };
+  let finishReason = null;
+  let buffer = '';
+  const decoder = new TextDecoder();
+
+  const handleLine = (line) => {
+    if (!line.startsWith('data:')) return;
+    const data = line.slice(5).trim();
+    if (!data || data === '[DONE]') return;
+    let chunk;
+    try { chunk = JSON.parse(data); } catch (err) { return; }
+    if (chunk.error) throw new Error(chunk.error.message || 'Erro no serviço de IA');
+    const choice = chunk.choices && chunk.choices[0];
+    if (!choice) return;
+    const delta = choice.delta || {};
+    if (typeof delta.content === 'string') message.content += delta.content;
+    if (typeof delta.reasoning_content === 'string') message.reasoning_content += delta.reasoning_content;
+    if (typeof delta.reasoning === 'string') message.reasoning_content += delta.reasoning;
+    if (choice.finish_reason) finishReason = choice.finish_reason;
+  };
+
+  for await (const piece of res.body) {
+    buffer += decoder.decode(piece, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop();
+    lines.forEach((line) => handleLine(line.trim()));
+    if (!message.content.trim() && message.reasoning_content.length > MAX_REASONING_CHARS) {
+      // Sair do laço fecha a conexão, e o servidor para de gerar
+      return { choices: [{ message, finish_reason: 'overthinking' }] };
+    }
+  }
+  handleLine((buffer + decoder.decode()).trim());
+
+  return { choices: [{ message, finish_reason: finishReason }] };
 }
 
 // Separa o raciocínio ("thinking") da resposta final. Cada servidor entrega
@@ -80,25 +132,27 @@ function splitReasoning(message) {
   return { answer, reasoning: parts.join('\n').trim() };
 }
 
-async function chatCompletion(cfg, messages, { temperature = 0.7, maxTokens = MAX_OUTPUT_TOKENS, extra = {} } = {}) {
-  const payload = { model: cfg.model, messages, temperature, max_tokens: maxTokens, ...extra };
+async function chatCompletion(cfg, messages, { temperature = 0.7, maxTokens = MAX_OUTPUT_TOKENS, signal } = {}) {
+  const payload = { model: cfg.model, messages, temperature, max_tokens: maxTokens };
 
   let result;
   try {
-    // 1ª tentativa: força JSON no nível do servidor (LM Studio/llama.cpp,
-    // Ollama e OpenAI entendem response_format). Reduz MUITO os JSONs errados.
-    result = await postChat(cfg, { ...payload, response_format: { type: 'json_object' } });
-    // Servidores antigos rejeitam response_format com 400 — tenta sem ele
+    // 1ª tentativa: força JSON no nível do servidor (llama.cpp, Ollama e
+    // OpenAI entendem response_format). Reduz MUITO os JSONs errados.
+    result = await postChat(cfg, { ...payload, response_format: { type: 'json_object' } }, signal);
+    // LM Studio e servidores antigos rejeitam json_object com 400 — tenta sem ele
     if (!result.res.ok && result.res.status === 400) {
-      result = await postChat(cfg, payload);
+      result = await postChat(cfg, payload, signal);
     }
     // Modelo com saída máxima menor que MAX_OUTPUT_TOKENS também responde 400:
     // tenta sem max_tokens e deixa o servidor usar o limite padrão dele
     if (!result.res.ok && result.res.status === 400) {
       const { max_tokens: _omit, ...semLimite } = payload;
-      result = await postChat(cfg, semLimite);
+      result = await postChat(cfg, semLimite, signal);
     }
   } catch (err) {
+    if (err.name === 'AbortError') throw new Error('Geração cancelada');
+    if (err.message && !/fetch failed|terminated/i.test(err.message)) throw err;
     throw new Error(`Não foi possível conectar ao serviço de IA (${cfg.baseUrl}). Verifique a URL e se o servidor está no ar.`);
   }
 
@@ -117,7 +171,12 @@ async function chatCompletion(cfg, messages, { temperature = 0.7, maxTokens = MA
   }
   // finish_reason=length indica resposta cortada por max_tokens — o JSON
   // provavelmente veio incompleto; o parser tentará recuperar os itens inteiros.
-  return { answer, reasoning, truncated: choice.finish_reason === 'length' };
+  return {
+    answer,
+    reasoning,
+    truncated: choice.finish_reason === 'length',
+    overthinking: choice.finish_reason === 'overthinking'
+  };
 }
 
 async function testConnection(config) {
@@ -295,7 +354,7 @@ function sanitizeWords(items, expectedCount) {
   return result;
 }
 
-async function generateThemeWords(theme, count, config) {
+async function generateThemeWords(theme, count, config, { signal } = {}) {
   const cfg = normalizeConfig(config);
   const themeName = String(theme || '').trim();
   if (!themeName) {
@@ -326,39 +385,37 @@ async function generateThemeWords(theme, count, config) {
     `Responda agora APENAS com o array JSON completo com ${askCount} objetos:`;
 
   const minWords = Math.min(5, requested);
-  const first = await chatCompletion(cfg, [
+  // Desliga o raciocínio: a tarefa é só preencher JSON e, em modelo local,
+  // pensar antes multiplica o tempo (GLM a ~5 tokens/s levava 5+ minutos só
+  // raciocinando). "/no_think" vale para Qwen3 em qualquer posição; o
+  // template do GLM só desliga se a mensagem TERMINAR em "/nothink".
+  // Os demais modelos ignoram.
+  const { answer, reasoning, truncated, overthinking } = await chatCompletion(cfg, [
     { role: 'system', content: systemPrompt },
-    { role: 'user', content: userPrompt }
-  ], { temperature: 0.7 });
-  let { answer, truncated } = first;
+    { role: 'user', content: `${userPrompt}\n/no_think /nothink` }
+  ], { temperature: 0.7, signal });
+
+  if (overthinking) {
+    throw new Error(
+      `Não foi possível montar a lista: o modelo passou de ~${Math.round(MAX_REASONING_CHARS / 4)} tokens ` +
+      'só raciocinando sem começar a resposta, e a geração foi interrompida. ' +
+      'Tente de novo, use um modelo sem raciocínio ou desligue o "thinking" no servidor de IA.'
+    );
+  }
 
   if (!answer) {
     // Veio só o raciocínio, sem resposta final. Alguns modelos escrevem o
     // JSON pronto dentro do próprio raciocínio — aproveita se der.
-    const fromReasoning = tryExtractWords(first.reasoning, requested);
+    const fromReasoning = tryExtractWords(reasoning, requested);
     if (fromReasoning.length >= minWords) return fromReasoning;
 
-    // Segunda tentativa com o raciocínio desligado: "/no_think" vale para
-    // Qwen3 e enable_thinking para servidores llama.cpp/vLLM. Servidor que
-    // não aceita o parâmetro responde erro — aí fica valendo a mensagem abaixo.
-    let retry = null;
-    try {
-      retry = await chatCompletion(cfg, [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: `${userPrompt} /no_think` }
-      ], { temperature: 0.7, extra: { chat_template_kwargs: { enable_thinking: false } } });
-    } catch (err) { /* usa o erro de "só raciocínio" abaixo */ }
-
-    if (!retry || !retry.answer) {
-      const motivo = first.truncated
-        ? `o modelo gastou todo o limite de ${MAX_OUTPUT_TOKENS} tokens só raciocinando e não chegou a responder`
-        : 'o modelo devolveu só o raciocínio, sem a resposta final';
-      throw new Error(
-        `Não foi possível montar a lista: ${motivo}. ` +
-        'Tente de novo, use um modelo sem raciocínio ou desligue o "thinking" no servidor de IA.'
-      );
-    }
-    ({ answer, truncated } = retry);
+    const motivo = truncated
+      ? `o modelo gastou todo o limite de ${MAX_OUTPUT_TOKENS} tokens só raciocinando e não chegou a responder`
+      : 'o modelo devolveu só o raciocínio, sem a resposta final';
+    throw new Error(
+      `Não foi possível montar a lista: ${motivo}. ` +
+      'Tente de novo, use um modelo sem raciocínio ou desligue o "thinking" no servidor de IA.'
+    );
   }
 
   const items = parseJsonArray(answer);
